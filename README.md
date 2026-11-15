@@ -69,8 +69,8 @@ omarchy restart shell
 omarchy-shell shell toggle ozzy.claude-usage
 omarchy-shell shell summon ozzy.claude-usage
 omarchy-shell shell hide ozzy.claude-usage
-omarchy-shell ipc call ozzy.claude-usage refresh
-omarchy-shell ipc call ozzy.claude-usage settings
+omarchy-shell ozzy.claude-usage refresh
+omarchy-shell ozzy.claude-usage settings
 ```
 
 ## Development & Testing
