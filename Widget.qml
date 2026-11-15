@@ -976,9 +976,11 @@ BarWidget {
 
   component StatusCard: SectionCard {
     property var provider: null
+    readonly property string statusTitle: root.plainText(provider ? (provider.usageStatusText || "Notice") : "")
+    readonly property bool isRateLimit: statusTitle.toLowerCase().indexOf("rate") !== -1
     visible: !!provider && String(provider.authHelpText || "") !== ""
-    titleColor: urgent
-    title: root.plainText(provider ? (provider.usageStatusText || "Notice") : "")
+    titleColor: isRateLimit ? "#F59E0B" : urgent
+    title: statusTitle
     subtitle: root.plainText(provider ? provider.authHelpText : "")
   }
 

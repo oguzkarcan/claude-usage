@@ -1163,12 +1163,22 @@ def _query_live_quota(base_dir: Path, force: bool = False) -> dict[str, Any]:
                     limits = payload.get("limits") or []
                     tier = sanitize_plain_text(payload.get("tierLabel") or "", 40)
                     groups = _limits_to_groups(limits, tier)
+                    auth_help = sanitize_plain_text(payload.get("authHelpText") or "", 220)
+                    usage_status = sanitize_plain_text(payload.get("usageStatusText") or "", 100)
+                    limits_stale = bool(payload.get("limitsStale", False))
+                    is_rate_limited = "rate limit" in auth_help.lower()
+                    # When cached limits are still fresh (not stale) and the only issue is a 429
+                    # rate-limit cooldown on Anthropic's /usage probe, avoid showing a red alert card.
+                    if groups and not limits_stale and is_rate_limited:
+                        auth_help = ""
+                    elif is_rate_limited and not usage_status:
+                        usage_status = "Quota Rate Limited"
                     return {
                         "ok": len(groups) > 0,
                         "tierLabel": tier,
                         "groups": groups,
-                        "usageStatusText": sanitize_plain_text(payload.get("usageStatusText") or "", 100),
-                        "authHelpText": sanitize_plain_text(payload.get("authHelpText") or "", 220),
+                        "usageStatusText": usage_status,
+                        "authHelpText": auth_help,
                         "limitsFetchedAt": int(payload.get("limitsFetchedAt") or 0),
                     }
         except Exception:
@@ -1231,7 +1241,7 @@ def fetch_claude_usage_quota(base_dir: Path, cache_dir: Path, force: bool = Fals
             age = time.time() - cache_path.stat().st_mtime
             data = read_json_safe(cache_path)
             if isinstance(data, dict) and data.get("groups"):
-                if age > 180:
+                if age > 300:
                     trigger_bg_quota_refresh(base_dir, cache_dir)
                 return data
         except Exception:
@@ -1670,6 +1680,13 @@ def scan(base_dir: Path, force: bool = False, alert_threshold: int | None = None
     tier_label = sanitize_plain_text(raw_quota.get("tierLabel") or oauth_plan or "Anthropic", 40)
     has_local = len(all_sessions) > 0 or total_prompts > 0 or len(quota_groups) > 0
 
+    raw_auth_help = sanitize_plain_text(raw_quota.get("authHelpText") or "", 220)
+    raw_usage_status = sanitize_plain_text(raw_quota.get("usageStatusText") or "", 100)
+    if raw_auth_help and not raw_usage_status:
+        raw_usage_status = "Quota Rate Limited" if "rate limit" in raw_auth_help.lower() else "Quota Notice"
+    elif not raw_usage_status:
+        raw_usage_status = f"{active_status} • {clean_latest_model}"
+
     result = {
         "schemaVersion": 1,
         "id": "claude",
@@ -1703,8 +1720,8 @@ def scan(base_dir: Path, force: bool = False, alert_threshold: int | None = None
         "quotaUpdatedAt": quota_updated_at,
         "quotaUpdatedMs": quota_updated_ms,
         "lastFullRefreshMs": quota_updated_ms,
-        "usageStatusText": sanitize_plain_text(raw_quota.get("usageStatusText") or f"{active_status} • {clean_latest_model}", 100),
-        "authHelpText": sanitize_plain_text(raw_quota.get("authHelpText") or "", 220),
+        "usageStatusText": raw_usage_status,
+        "authHelpText": raw_auth_help,
     }
 
     try:
