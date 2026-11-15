@@ -44,12 +44,24 @@ Adapted from [jesseburlamaque/antigravity-usage](https://github.com/jesseburlama
 
 ## Installation
 
+```sh
+omarchy plugin add https://github.com/oguzkarcan/claude-usage.git --enable
+omarchy restart shell
+```
+
 ### Local Install (from this directory)
 
 ```sh
 ln -sfn "$(pwd)" ~/.config/omarchy/plugins/ozzy.claude-usage
+omarchy-shell shell rescanPlugins
 omarchy plugin enable ozzy.claude-usage --section centerEnd
-omarchy restart shell
+```
+
+### Update / Removal
+
+```sh
+omarchy plugin update ozzy.claude-usage --yes
+omarchy plugin remove ozzy.claude-usage
 ```
 
 ### Configuration & Shortcuts
