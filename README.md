@@ -48,7 +48,7 @@ Adapted from [jesseburlamaque/antigravity-usage](https://github.com/jesseburlama
 
 ```sh
 ln -sfn "$(pwd)" ~/.config/omarchy/plugins/ozzy.claude-usage
-omarchy bar add ozzy.claude-usage --section centerEnd
+omarchy plugin enable ozzy.claude-usage --section centerEnd
 omarchy restart shell
 ```
 
