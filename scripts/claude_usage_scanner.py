@@ -52,6 +52,22 @@ CLAUDE_CODE_LOCAL_OUTPUT = ("<local-command-stdout>", "<local-command-stderr>")
 CLAUDE_CODE_MACHINE_SOURCES = ("system", "task-notification", "peer")
 
 _MS_EPOCH_THRESHOLD = 10_000_000_000
+_SAFE_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
+
+
+def is_safe_session_id(value: Any) -> bool:
+    """Return True if value is a safe identifier unsuitable for CLI flag injection."""
+    return isinstance(value, str) and bool(_SAFE_SESSION_ID_RE.match(value))
+
+
+def _safe_int(value: Any) -> int:
+    """Convert value to non-negative integer safely, returning 0 on invalid/bool inputs."""
+    if isinstance(value, bool) or value is None:
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def default_base_dir() -> Path:
@@ -92,7 +108,7 @@ def tighten_existing_cache_files(cache_dir: Path) -> None:
 def open_private_file(path: Path, flags: int, mode: int = 0o600):
     """Open or create a file with restrictive 0600 permissions regardless of umask."""
     ensure_private_dir(path.parent)
-    fd = os.open(str(path), flags, mode)
+    fd = os.open(str(path), flags | getattr(os, "O_NOFOLLOW", 0), mode)
     try:
         os.fchmod(fd, mode)
     except Exception:
@@ -330,19 +346,19 @@ def read_oauth_info(base_dir: Path) -> tuple[str, int, int, str]:
 
 
 def is_pid_alive(pid: int, proc_start: str | None = None) -> bool:
-    """Check whether a Claude session PID is still alive (and not a recycled unrelated PID)."""
-    if not isinstance(pid, int) or pid <= 0:
+    """Check whether a Claude session PID is still alive (and owned by current user)."""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
     proc_dir = Path(f"/proc/{pid}")
-    if not proc_dir.exists():
+    try:
+        st = proc_dir.stat()
+    except OSError:
+        return False
+    if st.st_uid != os.getuid():
         return False
     try:
         os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        pass
-    except OSError:
+    except (ProcessLookupError, PermissionError, OSError):
         return False
 
     if proc_start:
@@ -371,7 +387,7 @@ def parse_active_sessions(sessions_dir: Path) -> dict[str, dict[str, Any]]:
             continue
         pid = data.get("pid")
         sid = sanitize_plain_text(data.get("sessionId") or "", 100)
-        if not sid or not isinstance(pid, int):
+        if not sid or not isinstance(pid, int) or isinstance(pid, bool):
             continue
         proc_start = str(data.get("procStart") or "") or None
         if not is_pid_alive(pid, proc_start):
@@ -406,6 +422,8 @@ def parse_active_sessions(sessions_dir: Path) -> dict[str, dict[str, Any]]:
 
 def kill_session(session_id: str, base_dir: Path) -> bool:
     """Find alive PIDs for sessionId in ~/.claude/sessions/*.json and terminate them cleanly."""
+    if not is_safe_session_id(session_id):
+        return False
     sessions_dir = base_dir / "sessions"
     if not sessions_dir.exists():
         return False
@@ -417,7 +435,7 @@ def kill_session(session_id: str, base_dir: Path) -> bool:
             continue
         pid = data.get("pid")
         proc_start = str(data.get("procStart") or "") or None
-        if isinstance(pid, int) and pid != os.getpid() and is_pid_alive(pid, proc_start):
+        if isinstance(pid, int) and not isinstance(pid, bool) and pid != os.getpid() and is_pid_alive(pid, proc_start):
             pids.add(pid)
 
     killed_any = False
@@ -621,10 +639,10 @@ def _parse_single_transcript(path: Path, is_top_level: bool) -> dict[str, Any]:
             cache_read = 0
             cache_write = 0
             if isinstance(usage, dict):
-                in_tok = int(usage.get("input_tokens") or usage.get("inputTokens") or 0)
-                out_tok = int(usage.get("output_tokens") or usage.get("outputTokens") or 0)
-                cache_read = int(usage.get("cache_read_input_tokens") or usage.get("cacheReadInputTokens") or 0)
-                cache_write = int(usage.get("cache_creation_input_tokens") or usage.get("cacheCreationInputTokens") or 0)
+                in_tok = _safe_int(usage.get("input_tokens") or usage.get("inputTokens"))
+                out_tok = _safe_int(usage.get("output_tokens") or usage.get("outputTokens"))
+                cache_read = _safe_int(usage.get("cache_read_input_tokens") or usage.get("cacheReadInputTokens"))
+                cache_write = _safe_int(usage.get("cache_creation_input_tokens") or usage.get("cacheCreationInputTokens"))
 
             msg_tools: list[str] = []
             content = message.get("content")

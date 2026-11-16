@@ -19,7 +19,11 @@ from claude_usage_scanner import (
     format_claude_model_name,
     format_hours_duration,
     history_prompt_is_real,
+    is_pid_alive,
+    is_safe_session_id,
+    kill_session,
     normalize_timestamp_seconds,
+    open_private_file,
     parse_active_sessions,
     parse_transcripts,
     read_configured_model,
@@ -365,6 +369,61 @@ class TestClaudeScanner(unittest.TestCase):
                     fpath = xdg_plugin_cache / fname
                     self.assertTrue(fpath.exists(), f"Missing XDG cache file {fname}")
                     self.assertEqual(stat.S_IMODE(fpath.stat().st_mode), 0o600)
+
+    def test_hardening_guards(self):
+        self.assertFalse(is_pid_alive(True))
+        self.assertFalse(is_pid_alive(0))
+        self.assertTrue(is_pid_alive(os.getpid()))
+
+        self.assertTrue(is_safe_session_id("abc-123_XYZ.1"))
+        self.assertFalse(is_safe_session_id("--dangerous-flag"))
+        self.assertFalse(is_safe_session_id("../escape"))
+        self.assertFalse(is_safe_session_id(""))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_dir = Path(tmpdir)
+            sess_dir = base_dir / "sessions"
+            sess_dir.mkdir(parents=True)
+            (sess_dir / "bool.json").write_text(json.dumps({
+                "pid": True,
+                "sessionId": "bool-sess",
+                "status": "working",
+            }))
+            (sess_dir / "flag.json").write_text(json.dumps({
+                "pid": os.getpid(),
+                "sessionId": "--bad-id",
+                "status": "working",
+            }))
+            active = parse_active_sessions(sess_dir)
+            self.assertNotIn("bool-sess", active)
+            self.assertFalse(kill_session("--bad-id", base_dir))
+
+            proj_dir = base_dir / "projects" / "-home-test"
+            proj_dir.mkdir(parents=True)
+            today_str = recent_date_strings()[-1]
+            (proj_dir / "badtok.jsonl").write_text(json.dumps({
+                "type": "assistant",
+                "timestamp": f"{today_str}T10:00:00Z",
+                "message": {
+                    "id": "msg-badtok",
+                    "model": "claude-sonnet-4-6",
+                    "usage": {"input_tokens": "not-an-int", "output_tokens": 50},
+                    "content": [{"type": "text", "text": "ok"}],
+                },
+            }) + "\n")
+            _, _, model_list, _, _, _, _, _, total_steps, total_tokens = parse_transcripts(
+                base_dir / "projects", today_str, [today_str], cache_dir=base_dir / "cache"
+            )
+            self.assertEqual(total_steps, 1)
+            self.assertEqual(total_tokens, 50)
+            self.assertEqual(len(model_list), 1)
+
+            target = base_dir / "real.txt"
+            target.write_text("orig")
+            sym = base_dir / "link.flag"
+            sym.symlink_to(target)
+            with self.assertRaises(OSError):
+                open_private_file(sym, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
 
 
 if __name__ == "__main__":

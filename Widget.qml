@@ -69,10 +69,15 @@ BarWidget {
     usageMain.refreshAll(force === true)
   }
 
+  function isSafeSessionId(conversationId) {
+    return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(String(conversationId || ""))
+  }
+
   function getTerminalArgs(cmdArgs, workspacePath) {
     var termSetting = (root.settings && root.settings.terminalCommand) ? String(root.settings.terminalCommand).trim() : ""
-    var ws = workspacePath || ""
+    var ws = String(workspacePath || "").trim()
     if (ws.indexOf("file://") === 0) ws = decodeURIComponent(ws.substring(7))
+    if (ws.charAt(0) !== "/") ws = ""
 
     if (!termSetting) {
       var args = ["xdg-terminal-exec"]
@@ -117,8 +122,8 @@ BarWidget {
   }
 
   function resumeSession(conversationId, workspacePath) {
-    if (!conversationId) return
-    var args = getTerminalArgs(["claude", "--resume", conversationId], workspacePath)
+    if (!isSafeSessionId(conversationId)) return
+    var args = getTerminalArgs(["claude", "--resume", String(conversationId)], workspacePath)
     try {
       Quickshell.execDetached(["uwsm-app", "--"].concat(args))
     } catch (e) {
@@ -138,11 +143,11 @@ BarWidget {
   }
 
   function killSession(conversationId) {
-    if (!conversationId) return
+    if (!isSafeSessionId(conversationId)) return
     var scannerPath = root.provider ? root.provider.scannerScriptPath : ""
     if (scannerPath) {
       try {
-        Quickshell.execDetached(["python3", scannerPath, "--kill", conversationId])
+        Quickshell.execDetached(["python3", scannerPath, "--kill", String(conversationId)])
         root.triggerRefresh(false)
         killRefreshTimer.restart()
       } catch (e) {
