@@ -4,6 +4,7 @@
 import datetime as dt
 import json
 import os
+import stat
 import sys
 import tempfile
 import unittest
@@ -295,6 +296,75 @@ class TestClaudeScanner(unittest.TestCase):
 
                 check_and_send_quota_notifications(cdir, low, threshold_pct=15)
                 self.assertEqual(mock_run.call_count, 1)
+
+    def test_cache_permissions_under_umask_022(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_dir = Path(tmpdir) / "claude"
+            proj_dir = base_dir / "projects" / "-home-test-repo"
+            proj_dir.mkdir(parents=True)
+            cache_dir = base_dir / "cache"
+            cache_dir.mkdir(parents=True)
+            os.chmod(cache_dir, 0o755)
+
+            (cache_dir / "quota_usage_cache.json").write_text(json.dumps({
+                "ok": True,
+                "tierLabel": "Pro",
+                "groups": [{
+                    "name": "Claude Subscription (Pro)",
+                    "buckets": [{"id": "session-5-hour", "label": "5-Hour Session", "remaining_fraction": 0.8}],
+                }],
+            }))
+            (proj_dir / "sess-perm.jsonl").write_text(json.dumps({
+                "type": "assistant",
+                "timestamp": "2026-11-16T07:00:00Z",
+                "message": {
+                    "id": "msg-perm-1",
+                    "model": "claude-sonnet-4-6",
+                    "usage": {"input_tokens": 100, "output_tokens": 20},
+                    "content": [{"type": "text", "text": "ok"}],
+                },
+            }) + "\n")
+            (base_dir / "history.jsonl").write_text(json.dumps({
+                "display": "secret prompt text",
+                "timestamp": 1794812400000,
+                "project": "/home/test/repo",
+                "sessionId": "sess-perm",
+            }) + "\n")
+
+            old_umask = os.umask(0o022)
+            try:
+                scan(base_dir, force=True)
+                check_and_send_quota_notifications(cache_dir, [], threshold_pct=15)
+            finally:
+                os.umask(old_umask)
+
+            self.assertEqual(stat.S_IMODE(cache_dir.stat().st_mode), 0o700)
+            for fname in (
+                "scanner_cache.json",
+                "transcript_stats_cache.json",
+                "quota_snapshots.json",
+                "quota_usage_cache.json",
+            ):
+                fpath = cache_dir / fname
+                self.assertTrue(fpath.exists(), f"Missing cache file {fname}")
+                self.assertEqual(stat.S_IMODE(fpath.stat().st_mode), 0o600)
+
+            # Also verify XDG_CACHE_HOME path when scanning default CLAUDE_CONFIG_DIR
+            xdg_dir = Path(tmpdir) / "xdg_cache"
+            xdg_dir.mkdir(mode=0o755)
+            os.chmod(xdg_dir, 0o755)
+            with patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(base_dir), "XDG_CACHE_HOME": str(xdg_dir)}):
+                old_umask = os.umask(0o022)
+                try:
+                    scan(base_dir, force=True)
+                finally:
+                    os.umask(old_umask)
+                xdg_plugin_cache = xdg_dir / "ozzy.claude-usage"
+                self.assertEqual(stat.S_IMODE(xdg_plugin_cache.stat().st_mode), 0o700)
+                for fname in ("scanner_cache.json", "transcript_stats_cache.json"):
+                    fpath = xdg_plugin_cache / fname
+                    self.assertTrue(fpath.exists(), f"Missing XDG cache file {fname}")
+                    self.assertEqual(stat.S_IMODE(fpath.stat().st_mode), 0o600)
 
 
 if __name__ == "__main__":
