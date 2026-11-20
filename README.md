@@ -4,6 +4,8 @@ Claude Code active session monitor, prompt & token metrics, tool telemetry, inte
 
 Adapted from [jesseburlamaque/antigravity-usage](https://github.com/jesseburlamaque/antigravity-usage) for Claude Code (`~/.claude`).
 
+![Claude Usage Preview](preview.png)
+
 ## Features
 
 ### 1. Status Bar Icon & Live Badge
