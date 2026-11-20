@@ -1123,6 +1123,8 @@ BarWidget {
                   anchors.bottom: parent.bottom
                   width: parent.width * parent.frac
                   color: {
+                    if (modelData.window === "weekly" || modelData.window === "5h")
+                      return modelData.color || "#D97757"
                     if (parent.frac <= 0.15 || modelData.forecastStatus === "critical") return bar ? bar.urgent : Color.urgent
                     if (parent.frac <= 0.30 || modelData.forecastStatus === "warning") return "#F59E0B"
                     return modelData.color || "#D97757"

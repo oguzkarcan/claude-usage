@@ -1140,6 +1140,7 @@ def _limits_to_groups(limits: list[dict[str, Any]], tier_label: str = "") -> lis
 
     groups: list[dict[str, Any]] = []
     if core_buckets:
+        core_buckets.sort(key=lambda b: 0 if b.get("window") == "weekly" else (1 if b.get("window") == "5h" else 2))
         sub_name = f"Claude Subscription ({tier_label})" if tier_label and tier_label != "Anthropic" else "Claude Subscription"
         groups.append({
             "name": sub_name,
@@ -1379,6 +1380,9 @@ def format_quota_groups(raw_data: dict[str, Any], cache_dir: Path | None = None)
                 "forecastText": forecast_text,
                 "forecastStatus": forecast_status,
             })
+
+        if not is_scoped:
+            buckets.sort(key=lambda b: 0 if b.get("window") == "weekly" else (1 if b.get("window") == "5h" else 2))
 
         formatted.append({
             "name": g_name,

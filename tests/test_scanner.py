@@ -14,10 +14,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from claude_usage_scanner import (
+    _limits_to_groups,
     check_and_send_quota_notifications,
     compute_bucket_forecast,
     format_claude_model_name,
     format_hours_duration,
+    format_quota_groups,
     history_prompt_is_real,
     is_pid_alive,
     is_safe_session_id,
@@ -424,6 +426,19 @@ class TestClaudeScanner(unittest.TestCase):
             sym.symlink_to(target)
             with self.assertRaises(OSError):
                 open_private_file(sym, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+
+    def test_weekly_before_session_order_and_color(self):
+        groups = _limits_to_groups(
+            [
+                {"label": "Session (5-hour)", "percent": 0.4, "resetsAt": "2026-11-20T18:00:00Z"},
+                {"label": "Weekly (7-day)", "percent": 0.1, "resetsAt": "2026-11-26T23:59:59Z"},
+            ],
+            "Pro",
+        )
+        formatted = format_quota_groups({"groups": groups})
+        buckets = formatted[0]["buckets"]
+        self.assertEqual([b["window"] for b in buckets], ["weekly", "5h"])
+        self.assertEqual([b["color"] for b in buckets], ["#D97757", "#D97757"])
 
 
 if __name__ == "__main__":
